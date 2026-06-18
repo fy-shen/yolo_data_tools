@@ -1,0 +1,5 @@
+# 核心算法依赖
+numpy>=1.21
+
+# 仅在运行 Ultralytics 适配器和示例时需要
+ultralytics>=8.0

@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.DS_Store
+.idea/
+.vscode/
+/runs/
+/work_dirs/
+/data/
+/weights/
+*.pt
+*.pth
+*.onnx
+*.engine
