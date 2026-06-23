@@ -6,8 +6,11 @@ Data processing and active learning utilities for YOLO projects.
 
 ```text
 yolo_data_tools/
-├── active_learning_yolo/      # PPAL-style active learning for Ultralytics YOLO
+├── active_learning_yolo/      # PPAL 核心库和检测框架适配器
+├── scripts/                   # 可直接运行的数据处理脚本
+│   └── ppal/                  # PPAL 主动学习脚本
 ├── lib/ultralytics/           # Ultralytics source checkout, tracked as a gitlink/submodule
+├── weights/                   # 本地测试权重
 └── README.md
 ```
 
@@ -30,16 +33,15 @@ pip install -e lib/ultralytics
 
 ## PPAL Active Learning
 
-The PPAL code is in `active_learning_yolo`. The command-line entry point is:
+The PPAL code is in `active_learning_yolo`. The runnable selection script is:
 
 ```bash
-python -m active_learning_yolo.examples.select_with_ultralytics \
-  --model weights/yolo26s.pt \
+python scripts/ppal/select_with_ultralytics.py \
+  --model weights/yolov8s.pt \
   --unlabeled-list data/unlabeled.txt \
   --output work_dirs/round1/selected.txt \
   --budget 100 \
-  --device 0 \
-  --embed-layers 0 10
+  --device 0
 ```
 
 See `active_learning_yolo/README.md` for the detailed PPAL flow and current strict object-feature requirements.

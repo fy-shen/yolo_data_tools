@@ -17,8 +17,7 @@ active_learning_yolo/
 ├── data/                         # 数据与标注状态
 │   └── pool.py                   # 标注池、图片 txt 列表
 ├── adapters/                     # 检测器输出适配
-│   └── ultralytics.py            # YOLO Results 和目标级特征采样
-├── examples/                     # 可运行示例
+│   └── ultralytics.py            # YOLO Results 和目标级特征回溯
 ├── tests/                        # 单元测试
 ├── docs/                         # 原理和集成说明
 └── requirements.txt
@@ -36,8 +35,9 @@ selector = PPALSelector(budget=100, diversity_mode=OBJECT_FEATURES)
 result = selector.select(predictions, class_weights=class_weights)
 ```
 
-当前代码不再保留全局 embedding 路径。Ultralytics 必须返回 `[B,D,H,W]` 特征图，
-适配器会按 PPAL 原版方式在检测框中心用 `grid_sample` 做双线性采样。
+当前代码不再保留全局 embedding 路径。YOLOv8 适配器不修改 Ultralytics 源码，
+而是在本次预测期间临时注册 Detect head hook，复用 Ultralytics NMS 的保留候选
+索引，把每个检测框回溯到对应 anchor point/grid cell 的局部特征。
 
 ```python
 from active_learning_yolo.adapters import predict_with_object_features
@@ -46,7 +46,6 @@ from active_learning_yolo.ppal import OBJECT_FEATURES, PPALSelector
 predictions = predict_with_object_features(
     model,
     image_paths,
-    embed_layers=[0, 10],
     imgsz=640,
     conf=0.05,
     verbose=False,
@@ -64,18 +63,17 @@ result = PPALSelector(
 准备一行一个图片路径的 `data/unlabeled.txt`：
 
 ```bash
-conda run -n torch2.7.0 python \
-  -m active_learning_yolo.examples.select_with_ultralytics \
-  --model weights/yolo26s.pt \
+conda run -n yolo python \
+  scripts/ppal/select_with_ultralytics.py \
+  --model weights/yolov8s.pt \
   --unlabeled-list data/unlabeled.txt \
   --output work_dirs/round1/selected.txt \
   --budget 100 \
-  --device 0 \
-  --embed-layers 0 10
+  --device 0
 ```
 
-多层特征严格复现要求 Ultralytics 在 NMS 后的 `boxes` 对象中提供
-`level/lvl/lvl_inds` 等字段，表示每个检测框来自 `--embed-layers` 中的第几个层。
+当前命令行流程面向普通 YOLOv8 Detect 模型。YOLO26 默认 `end2end=True` 时不会返回
+NMS 候选索引，暂不纳入本流程。
 
 ## 类别难度
 
@@ -107,13 +105,13 @@ pool.save("work_dirs/pool.json")
 ## 测试
 
 ```bash
-conda run -n torch2.7.0 python -m unittest discover \
+conda run -n yolo python -m unittest discover \
   -s active_learning_yolo/tests -v
 ```
 
 ## 当前边界
 
 - 全局 embedding 模式已删除，只保留目标级局部特征。
-- 多层严格采样需要 YOLO 返回每个检测框的来源层索引。
+- 主流程依赖普通 YOLOv8 Detect 的 NMS 候选索引；暂不支持默认 end2end 模型。
 - 完整距离矩阵空间复杂度为 O(N^2)，候选池很大时需要分块或近似方法。
 - 当前处理水平目标框，未覆盖分割、姿态和旋转框。
