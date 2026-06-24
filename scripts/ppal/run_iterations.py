@@ -33,6 +33,10 @@ def parse_args() -> argparse.Namespace:
         "--data-list-mode", choices=("absolute", "relative-to-data-path", "basename"), default="absolute",
         help="每轮 data.yaml 中 train/val txt 的写法；服务器数据根目录场景可用 relative-to-data-path 或 basename",
     )
+    parser.add_argument(
+        "--image-list-mode", choices=("absolute", "preserve"), default="absolute",
+        help="写入每轮 train/pool txt 时如何处理图片路径；absolute 会把相对图片路径按 data-template.path 转为绝对路径",
+    )
     parser.add_argument("--rounds", default=5, type=int, help="训练轮次数；round0 算第 1 次训练")
     parser.add_argument("--add-ratio", default=0.02, type=float, help="每轮新增数据比例")
     parser.add_argument(
@@ -125,6 +129,29 @@ def _format_list_path(path: Path, template: dict[str, Any], mode: str) -> str:
 
 def _set_like_template(data: dict[str, Any], key: str, value: str) -> None:
     data[key] = [value] if isinstance(data.get(key), list) else value
+
+
+def _data_root(template: dict[str, Any]) -> Path | None:
+    value = template.get("path")
+    return Path(value).resolve() if value else None
+
+
+def _normalize_image_item(item: str, data_root: Path | None, mode: str) -> str:
+    if mode == "preserve":
+        return item
+    path = Path(item)
+    if path.is_absolute():
+        return str(path)
+    if data_root is None:
+        raise SystemExit("--image-list-mode absolute 需要 data-template 中包含 path 字段，或改用 --image-list-mode preserve")
+    # 每轮 train/pool txt 会写到 work-dir；相对图片路径必须先按数据集根目录解析，
+    # 否则 Ultralytics 会按 txt 所在目录拼接，导致 work-dir 改变图片路径语义。
+    return str((data_root / path).resolve())
+
+
+def _read_images_for_work_list(path: str | Path, template: dict[str, Any], mode: str) -> list[str]:
+    data_root = _data_root(template)
+    return [_normalize_image_item(item, data_root, mode) for item in read_image_list(path)]
 
 
 def _write_data_yaml(
@@ -299,8 +326,8 @@ def main() -> None:
 
     round_train = work_dir / "round0_train.txt"
     round_pool = work_dir / "round0_pool.txt"
-    write_image_list(round_train, read_image_list(args.initial_train))
-    write_image_list(round_pool, read_image_list(args.initial_pool))
+    write_image_list(round_train, _read_images_for_work_list(args.initial_train, template, args.image_list_mode))
+    write_image_list(round_pool, _read_images_for_work_list(args.initial_pool, template, args.image_list_mode))
 
     initial_count = len(read_image_list(round_train))
     pool_count = len(read_image_list(round_pool))

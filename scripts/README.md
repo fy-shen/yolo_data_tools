@@ -104,4 +104,9 @@ conda run -n yolo python scripts/ppal/run_iterations.py \
 `work-dir/roundN/train_save_dir.txt` 中记录。默认 `--train-from previous`，即下一轮从上一轮
 `best.pt` 继续训练；如果希望每轮都从同一个预训练模型重新训练，可加 `--train-from base`。
 
+注意 `--data-list-mode` 只控制每轮 `data.yaml` 里 train txt 路径的写法。每轮 train/pool txt
+内部的图片路径默认由 `--image-list-mode absolute` 处理：绝对路径保持不变，相对路径会按
+`data-template` 的 `path` 转成绝对路径，避免 Ultralytics 按 `work-dir` 拼接相对图片路径。
+如果确实要原样保留 txt 内容，可显式加 `--image-list-mode preserve`。
+
 正式运行前可以先加 `--dry-run` 检查每轮 txt 数量和生成的 data yaml，不会启动训练和推理。
