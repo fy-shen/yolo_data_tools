@@ -61,6 +61,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--conf", default=0.05, type=float, help="PPAL 推理保留框置信度")
     parser.add_argument("--select-batch", default=None, type=int, help="PPAL 推理 batch；默认沿用 --batch")
     parser.add_argument("--select-device", default=None, help="PPAL 推理设备；默认从 --device 取第一个设备")
+    parser.add_argument("--select-progress-interval", default=1000, type=int, help="PPAL 流式筛选进度打印间隔；<=0 表示关闭")
+    parser.add_argument("--select-predict-chunk-size", default=128, type=int, help="PPAL 推理每次传给 Ultralytics 的图片路径数量")
     parser.add_argument(
         "--class-weight-mode", choices=("map", "none"), default="map",
         help="map 表示每轮用 best.pt 在验证集上的逐类别 mAP 计算 PPAL 类别权重",
@@ -296,6 +298,8 @@ def _run_selection(
         "--batch", str(args.select_batch or args.batch),
         "--conf", str(args.conf),
         "--candidate-multiplier", str(args.candidate_multiplier),
+        "--progress-interval", str(args.select_progress_interval),
+        "--predict-chunk-size", str(args.select_predict_chunk_size),
         "--seed", str(args.seed + round_index),
     ]
     select_device = args.select_device or _first_device(args.device)

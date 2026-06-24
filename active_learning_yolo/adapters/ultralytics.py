@@ -6,10 +6,9 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 import contextlib
+import tempfile
 
 import numpy as np
-import torch
-
 from ..ppal.schemas import Detection, ImagePrediction
 
 
@@ -117,6 +116,30 @@ def _predict_results_with_object_features(
         _remove_callback(model, "on_predict_start", callback)
 
 
+def _iter_predict_results_with_object_features(
+    model: Any,
+    source: Any,
+    **predict_kwargs: Any,
+) -> Any:
+    """流式执行 YOLO predict，避免把大型未标注池的 Results 全部留在内存。"""
+    if "embed" in predict_kwargs and predict_kwargs["embed"] is not None:
+        raise ValueError("目标级特征提取使用 Detect hook，不应传入 embed")
+    predict_kwargs["embed"] = None
+
+    if not hasattr(model, "add_callback"):
+        raise ValueError("model 必须是 ultralytics.YOLO 实例或兼容对象")
+
+    hooks: list[Any] = []
+    callback = _make_detect_feature_callback(hooks)
+    model.add_callback("on_predict_start", callback)
+    try:
+        yield from model.predict(source=source, stream=True, **predict_kwargs)
+    finally:
+        for hook in hooks:
+            hook.remove()
+        _remove_callback(model, "on_predict_start", callback)
+
+
 def _attach_object_features(
     predictions: Sequence[ImagePrediction],
     results: Sequence[Any],
@@ -150,6 +173,54 @@ def predict_with_object_features(
     predictions = results_to_predictions(results, image_ids)
     _attach_object_features(predictions, results)
     return predictions
+
+
+def _chunks(items: Sequence[Any], size: int) -> Any:
+    for start in range(0, len(items), size):
+        yield start, items[start:start + size]
+
+
+@contextlib.contextmanager
+def _temporary_source_file(paths: Sequence[str]) -> Any:
+    handle = tempfile.NamedTemporaryFile(
+        "w", encoding="utf-8", suffix=".txt", prefix="ppal_predict_", delete=True
+    )
+    with handle:
+        handle.write("\n".join(str(item) for item in paths))
+        handle.write("\n")
+        handle.flush()
+        yield handle.name
+
+
+def iter_predict_with_object_features(
+    model: Any,
+    sources: Sequence[str],
+    image_ids: Sequence[Any] | None = None,
+    predict_chunk_size: int = 128,
+    **predict_kwargs: Any,
+) -> Any:
+    """流式执行 YOLOv8 检测，并逐张返回带目标级特征的 PPAL 预测。
+
+    Ultralytics 会把 list[str] source 当成内存图片列表并预加载所有图片。
+    这里按块写临时 txt source，让它走路径 loader，避免大型 pool 预加载。
+    """
+    source_list = list(sources)
+    if image_ids is not None and len(image_ids) != len(source_list):
+        raise ValueError("image_ids 数量必须与 sources 一致")
+    if predict_chunk_size <= 0:
+        raise ValueError("predict_chunk_size 必须大于 0")
+
+    for offset, source_chunk in _chunks(source_list, predict_chunk_size):
+        with _temporary_source_file(source_chunk) as source_file:
+            result_iter = _iter_predict_results_with_object_features(
+                model, source_file, **predict_kwargs
+            )
+            for chunk_index, result in enumerate(result_iter):
+                index = offset + chunk_index
+                result_image_ids = None if image_ids is None else [image_ids[index]]
+                predictions = results_to_predictions([result], result_image_ids)
+                _attach_object_features(predictions, [result])
+                yield predictions[0]
 
 
 def class_qualities_from_metrics(metrics: Any) -> dict[int, float]:

@@ -2,9 +2,8 @@ import unittest
 from unittest import mock
 
 import numpy as np
-import torch
-
 from active_learning_yolo.adapters.ultralytics import (
+    iter_predict_with_object_features,
     predict_with_object_features,
     results_to_predictions,
 )
@@ -23,7 +22,7 @@ class FakeResult:
     path = "/data/images/sample.jpg"
     boxes = FakeBoxes()
     orig_shape = (4, 4)
-    feats = torch.tensor([[3.0, 4.0]], dtype=torch.float32)
+    feats = np.array([[3.0, 4.0]], dtype=np.float32)
 
 
 class UltralyticsAdapterTest(unittest.TestCase):
@@ -42,6 +41,23 @@ class UltralyticsAdapterTest(unittest.TestCase):
             predictions = predict_with_object_features(
                 model, ["a.jpg"], image_ids=["image-1"], imgsz=4
             )
+
+        predict_mock.assert_called_once()
+        self.assertEqual(predictions[0].image_id, "image-1")
+        np.testing.assert_allclose(
+            predictions[0].detections[0].feature,
+            np.array([3.0, 4.0], dtype=np.float32),
+        )
+
+    def test_iter_predict_with_object_features_streams_results(self) -> None:
+        model = object()
+        with mock.patch(
+            "active_learning_yolo.adapters.ultralytics._iter_predict_results_with_object_features",
+            return_value=iter([FakeResult()]),
+        ) as predict_mock:
+            predictions = list(iter_predict_with_object_features(
+                model, ["a.jpg"], image_ids=["image-1"], imgsz=4
+            ))
 
         predict_mock.assert_called_once()
         self.assertEqual(predictions[0].image_id, "image-1")
