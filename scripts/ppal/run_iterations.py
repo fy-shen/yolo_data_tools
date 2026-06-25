@@ -63,6 +63,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--select-device", default=None, help="PPAL 推理设备；默认从 --device 取第一个设备")
     parser.add_argument("--select-progress-interval", default=1000, type=int, help="PPAL 流式筛选进度打印间隔；<=0 表示关闭")
     parser.add_argument("--select-predict-chunk-size", default=128, type=int, help="PPAL 推理每次传给 Ultralytics 的图片路径数量")
+    parser.add_argument("--diversity-progress-interval", default=500000, type=int, help="多样性距离矩阵每处理多少图片对打印一次进度；<=0 表示关闭")
+    parser.add_argument("--diversity-max-detections", default=0, type=int, help="多样性计算每张图最多使用多少个高置信框；<=0 表示不限制")
+    parser.add_argument("--kmedoids-max-iter", default=100, type=int, help="k-medoids 最大迭代次数")
     parser.add_argument(
         "--class-weight-mode", choices=("map", "none"), default="map",
         help="map 表示每轮用 best.pt 在验证集上的逐类别 mAP 计算 PPAL 类别权重",
@@ -300,6 +303,9 @@ def _run_selection(
         "--candidate-multiplier", str(args.candidate_multiplier),
         "--progress-interval", str(args.select_progress_interval),
         "--predict-chunk-size", str(args.select_predict_chunk_size),
+        "--diversity-progress-interval", str(args.diversity_progress_interval),
+        "--diversity-max-detections", str(args.diversity_max_detections),
+        "--kmedoids-max-iter", str(args.kmedoids_max_iter),
         "--seed", str(args.seed + round_index),
     ]
     select_device = args.select_device or _first_device(args.device)

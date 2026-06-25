@@ -37,6 +37,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--class-weights-json", default=None, help="可选：逐类别 PPAL 难度权重 JSON")
     parser.add_argument("--progress-interval", default=1000, type=int, help="流式筛选进度打印间隔；<=0 表示关闭")
     parser.add_argument("--predict-chunk-size", default=128, type=int, help="PPAL 推理每次传给 Ultralytics 的图片路径数量")
+    parser.add_argument("--diversity-progress-interval", default=500000, type=int, help="多样性距离矩阵每处理多少图片对打印一次进度；<=0 表示关闭")
+    parser.add_argument("--diversity-max-detections", default=0, type=int, help="多样性计算每张图最多使用多少个高置信框；<=0 表示不限制")
+    parser.add_argument("--kmedoids-max-iter", default=100, type=int, help="k-medoids 最大迭代次数")
     parser.add_argument("--seed", default=0, type=int)
     return parser.parse_args()
 
@@ -112,6 +115,12 @@ def main() -> None:
         candidate_multiplier=args.candidate_multiplier,
         diversity_mode=OBJECT_FEATURES,
         seed=args.seed,
+        diversity_progress_interval=args.diversity_progress_interval,
+        kmedoids_max_iter=args.kmedoids_max_iter,
+        max_detections_per_image=(
+            args.diversity_max_detections if args.diversity_max_detections > 0 else None
+        ),
+        progress_callback=lambda message: print(message, flush=True),
     )
     result = selector.select(candidates, class_weights=class_weights)
     selected = list(result.selected_ids)

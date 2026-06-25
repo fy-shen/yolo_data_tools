@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
 from .distance import OBJECT_FEATURES, build_distance_matrix, validate_object_features
 from .diversity import kmedoids
 from .schemas import ImageId, ImagePrediction
 from .uncertainty import rank_by_uncertainty
+
+ProgressCallback = Callable[[str], None]
 
 
 @dataclass(frozen=True)
@@ -30,6 +32,10 @@ class PPALSelector:
         score_threshold: float = 0.05,
         diversity_mode: str = OBJECT_FEATURES,
         seed: int = 0,
+        diversity_progress_interval: int = 500_000,
+        kmedoids_max_iter: int = 100,
+        max_detections_per_image: int | None = None,
+        progress_callback: ProgressCallback | None = None,
     ) -> None:
         if budget <= 0 or candidate_multiplier <= 0:
             raise ValueError("budget 和 candidate_multiplier 必须大于 0")
@@ -40,6 +46,10 @@ class PPALSelector:
         self.score_threshold = score_threshold
         self.diversity_mode = OBJECT_FEATURES
         self.seed = seed
+        self.diversity_progress_interval = diversity_progress_interval
+        self.kmedoids_max_iter = kmedoids_max_iter
+        self.max_detections_per_image = max_detections_per_image
+        self.progress_callback = progress_callback
 
     def select(
         self,
@@ -52,6 +62,8 @@ class PPALSelector:
         ids = [item.image_id for item in predictions]
         if len(set(ids)) != len(ids):
             raise ValueError("image_id 必须唯一")
+        if self.progress_callback is not None:
+            self.progress_callback(f"ppal select: ranking uncertainty for {len(predictions)} candidates")
         ranked = rank_by_uncertainty(
             predictions, class_weights, self.score_threshold
         )
@@ -61,13 +73,28 @@ class PPALSelector:
         candidates = [item[0] for item in ranked[:candidate_count]]
         scores = {item.image_id: score for item, score in ranked}
         validate_object_features(candidates)
+        if self.progress_callback is not None:
+            self.progress_callback(
+                f"ppal select: candidates={candidate_count} budget={self.budget}"
+            )
         if candidate_count == self.budget:
             selected = candidates
         else:
             matrix = build_distance_matrix(
-                candidates, self.diversity_mode, self.score_threshold
+                candidates,
+                self.diversity_mode,
+                self.score_threshold,
+                progress_interval=self.diversity_progress_interval,
+                progress_callback=self.progress_callback,
+                max_detections_per_image=self.max_detections_per_image,
             )
-            indices = kmedoids(matrix, self.budget, seed=self.seed)
+            indices = kmedoids(
+                matrix,
+                self.budget,
+                max_iter=self.kmedoids_max_iter,
+                seed=self.seed,
+                progress_callback=self.progress_callback,
+            )
             selected = [candidates[index] for index in indices]
         return SelectionResult(
             selected_ids=[item.image_id for item in selected],
