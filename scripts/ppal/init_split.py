@@ -16,25 +16,27 @@ from active_learning_yolo.data import read_image_list, write_image_list
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="划分 PPAL 初始训练集和未标注池")
+    parser = argparse.ArgumentParser(description="划分主动学习初始训练集和标注池")
     parser.add_argument(
         "--train-list", action="append", default=[],
-        help="训练集 txt，可重复传入多个",
+        help="训练集 txt，可重复传入多个，可与 '--train-glob' 组合使用",
     )
     parser.add_argument(
         "--train-glob", default=None,
-        help="训练集 txt glob，例如 '/data/football/*-train.txt'",
+        help="训练集 txt glob，例如 '/data/football/*-train.txt'，可与 '--train-list' 组合使用",
     )
     parser.add_argument(
         "--dataset-root", default=None,
         help="相对路径的基准目录；默认使用每个 txt 文件所在目录",
     )
-    parser.add_argument("--initial-output", required=True, help="初始训练集输出 txt")
-    parser.add_argument("--pool-output", required=True, help="剩余 PPAL 未标注池输出 txt")
-    parser.add_argument("--all-output", default=None, help="可选：合并去重后的全训练集输出 txt")
+    parser.add_argument("--train-out", required=True, help="训练集输出 txt")
+    parser.add_argument("--pool-out", required=True, help="剩余未标注池输出 txt")
+    parser.add_argument("--all-out", default=None, help="可选：合并去重后的全训练集输出 txt")
+
     parser.add_argument("--val-list", action="append", default=[], help="验证集 txt，可重复传入多个")
     parser.add_argument("--val-glob", default=None, help="验证集 txt glob，例如 '/data/football/*-val.txt'")
-    parser.add_argument("--val-output", default=None, help="可选：合并去重后的全验证集输出 txt")
+    parser.add_argument("--val-out", default=None, help="可选：合并去重后的全验证集输出 txt")
+
     size_group = parser.add_mutually_exclusive_group(required=True)
     size_group.add_argument("--initial-size", type=int, help="初始训练集图片数量")
     size_group.add_argument("--initial-ratio", type=float, help="初始训练集比例，例如 0.02")
@@ -73,6 +75,15 @@ def _collect_train_lists(args: argparse.Namespace) -> list[Path]:
     return paths
 
 
+def _validate_args(args: argparse.Namespace) -> None:
+    if args.val_out and not (args.val_list or args.val_glob):
+        raise SystemExit("指定 --val-out 时必须同时指定 --val-list 或 --val-glob")
+    if args.initial_size is not None and args.initial_size <= 0:
+        raise SystemExit("--initial-size 必须大于 0")
+    if args.initial_ratio is not None and not (0 < args.initial_ratio < 1):
+        raise SystemExit("--initial-ratio 必须在 0 到 1 之间")
+
+
 def _read_unique_images(
     list_paths: list[Path],
     dataset_root: Path | None,
@@ -102,11 +113,7 @@ def _normalize_path(raw: str, list_path: Path, dataset_root: Path | None, path_m
 
 def _target_initial_count(total: int, args: argparse.Namespace) -> int:
     if args.initial_size is not None:
-        if args.initial_size <= 0:
-            raise SystemExit("--initial-size 必须大于 0")
         return min(args.initial_size, total)
-    if not (0 < args.initial_ratio < 1):
-        raise SystemExit("--initial-ratio 必须在 0 到 1 之间")
     return max(1, min(total, round(total * args.initial_ratio)))
 
 
@@ -139,7 +146,9 @@ def _stratified_sample(groups: dict[str, list[str]], n: int, rng: random.Random)
 
 def main() -> None:
     args = parse_args()
+    _validate_args(args)
     rng = random.Random(args.seed)
+    # 搜集训练数据
     dataset_root = Path(args.dataset_root).resolve() if args.dataset_root else None
     train_lists = _collect_train_lists(args)
 
@@ -153,41 +162,40 @@ def main() -> None:
             seen.add(image_path)
             groups[str(list_path)].append(image_path)
 
-    all_images = [item for items in groups.values() for item in items]
-    if not all_images:
+    all_data = [item for items in groups.values() for item in items]
+    if not all_data:
         raise SystemExit("训练集 txt 为空")
 
-    initial_count = _target_initial_count(len(all_images), args)
+    # 随机采样
+    initial_count = _target_initial_count(len(all_data), args)
     if args.no_stratify_source:
-        shuffled = list(all_images)
+        shuffled = list(all_data)
         rng.shuffle(shuffled)
-        initial = shuffled[:initial_count]
+        train_data = shuffled[:initial_count]
     else:
-        initial = _stratified_sample(groups, initial_count, rng)
+        train_data = _stratified_sample(groups, initial_count, rng)
 
-    initial_set = set(initial)
-    pool = [item for item in all_images if item not in initial_set]
+    initial_set = set(train_data)
+    pool_data = [item for item in all_data if item not in initial_set]
 
-    write_image_list(args.initial_output, initial)
-    write_image_list(args.pool_output, pool)
-    if args.all_output:
-        write_image_list(args.all_output, all_images)
+    write_image_list(args.train_out, train_data)
+    write_image_list(args.pool_out, pool_data)
+    if args.all_out:
+        write_image_list(args.all_out, all_data)
 
     val_lists = _collect_lists(args.val_list, args.val_glob)
-    val_images = _read_unique_images(val_lists, dataset_root, args.path_mode) if val_lists else []
-    if args.val_output:
-        if not val_lists:
-            raise SystemExit("指定 --val-output 时必须同时指定 --val-list 或 --val-glob")
-        write_image_list(args.val_output, val_images)
+    val_data = _read_unique_images(val_lists, dataset_root, args.path_mode) if val_lists else []
+    if args.val_out:
+        write_image_list(args.val_out, val_data)
 
-    print(f"输入 train txt: {len(train_lists)}")
-    print(f"全训练集去重: {len(all_images)}")
-    print(f"初始训练集: {len(initial)} -> {Path(args.initial_output).resolve()}")
-    print(f"PPAL 未标注池: {len(pool)} -> {Path(args.pool_output).resolve()}")
-    if args.all_output:
-        print(f"全训练集: {Path(args.all_output).resolve()}")
-    if args.val_output:
-        print(f"全验证集去重: {len(val_images)} -> {Path(args.val_output).resolve()}")
+    print(f"train txt num: {len(train_lists)}")
+    print(f"train data total num(unique): {len(all_data)}")
+    print(f"save train dataset: {len(train_data)} -> {Path(args.train_out).resolve()}")
+    print(f"save pool dataset: {len(pool_data)} -> {Path(args.pool_out).resolve()}")
+    if args.all_out:
+        print(f"save all dataset: {len(all_data)} -> {Path(args.all_out).resolve()}")
+    if args.val_out:
+        print(f"save val dataset: {len(val_data)} -> {Path(args.val_out).resolve()}")
 
 
 if __name__ == "__main__":
