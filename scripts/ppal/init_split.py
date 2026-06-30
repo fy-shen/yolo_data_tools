@@ -40,6 +40,7 @@ def parse_args() -> argparse.Namespace:
     size_group = parser.add_mutually_exclusive_group(required=True)
     size_group.add_argument("--initial-size", type=int, help="初始训练集图片数量")
     size_group.add_argument("--initial-ratio", type=float, help="初始训练集比例，例如 0.02")
+
     parser.add_argument("--seed", default=0, type=int)
     parser.add_argument(
         "--path-mode", choices=("absolute", "preserve"), default="absolute",
@@ -71,7 +72,7 @@ def _collect_lists(items: list[str], pattern: str | None) -> list[Path]:
 def _collect_train_lists(args: argparse.Namespace) -> list[Path]:
     paths = _collect_lists(args.train_list, args.train_glob)
     if not paths:
-        raise SystemExit("请通过 --train-list 或 --train-glob 指定训练集 txt")
+        raise SystemExit("训练集为空，请通过 --train-list 或 --train-glob 指定训练集 txt")
     return paths
 
 

@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import yaml
+from ultralytics import YOLO
 
 from active_learning_yolo.adapters import class_qualities_from_metrics
 from active_learning_yolo.data import read_image_list, write_image_list
@@ -136,11 +137,6 @@ def _set_like_template(data: dict[str, Any], key: str, value: str) -> None:
     data[key] = [value] if isinstance(data.get(key), list) else value
 
 
-def _data_root(template: dict[str, Any]) -> Path | None:
-    value = template.get("path")
-    return Path(value).resolve() if value else None
-
-
 def _normalize_image_item(item: str, data_root: Path | None, mode: str) -> str:
     if mode == "preserve":
         return item
@@ -155,7 +151,8 @@ def _normalize_image_item(item: str, data_root: Path | None, mode: str) -> str:
 
 
 def _read_images_for_work_list(path: str | Path, template: dict[str, Any], mode: str) -> list[str]:
-    data_root = _data_root(template)
+    data_root = template.get("path")
+    data_root = Path(str(data_root)).resolve() if data_root else None
     return [_normalize_image_item(item, data_root, mode) for item in read_image_list(path)]
 
 
@@ -175,7 +172,7 @@ def _write_data_yaml(
 
 
 def _train_round(args: argparse.Namespace, round_index: int, model_path: str, data_yaml: Path) -> Path:
-    from ultralytics import YOLO
+
 
     round_dir = Path(args.work_dir) / f"round{round_index}"
     round_dir.mkdir(parents=True, exist_ok=True)
@@ -240,8 +237,6 @@ def _validation_class_weights(
 ) -> Path | None:
     if args.class_weight_mode == "none":
         return None
-
-    from ultralytics import YOLO
 
     round_dir = Path(args.work_dir) / f"round{round_index}"
     val_args: dict[str, Any] = {
@@ -344,7 +339,7 @@ def main() -> None:
     total_count = initial_count + pool_count
     print(f"初始训练集: {initial_count}")
     print(f"初始未标注池: {pool_count}")
-    print(f"估计总训练池: {total_count}")
+    print(f"总训练池: {total_count}")
 
     current_model = args.base_model
     trained_model: Path | None = None
